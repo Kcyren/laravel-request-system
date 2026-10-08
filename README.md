@@ -33,3 +33,5 @@ DevOps Laboratory Activity - Lab 1
 
 **Repository Link:** https://github.com/Kcyren/laravel-request-system
 
+## Lab 3 Verification Notes
+Updated independently on main branch to verify merge conflict simulation.
