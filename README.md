@@ -18,3 +18,5 @@ When an unauthorized user attempts to view a request owned by another user or an
 * `POST /requests` - Secure store route (`auth` middleware, server-assigned attributes)
 * `GET /requests/{serviceRequest}` - Policy-protected show route (`auth` middleware)
 * `PATCH /requests/{serviceRequest}/status` - Admin-only status modification route (`auth` middleware)
+## Lab 3 Verification Notes
+Updated independently on main branch and cleanly integrated into feature branch.
