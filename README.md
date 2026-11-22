@@ -271,8 +271,27 @@ Local rehearsal without a registry:
 `sh scripts/deploy.sh --version 1.0.0 --app-ref laravel-request-system-app:1.0.0 --web-ref laravel-request-system-web:1.0.0 --known-good`,
 using `.env.staging` and `.env.db` on your machine with `APP_URL=http://127.0.0.1:8081`.
 
-**Recovery result:** _fill in after the lab: faulty version, the failed test,
-the restored version, and the STAGE-LIB-08 ID before and after._
+### Lab 8 results (staging on the team PC, 2026-11-22)
+
+| Step | Approved run | Result |
+|---|---|---|
+| Promote known-good **1.0.0** (commit `d193d37`) | [Deploy #2](https://github.com/Kcyren/laravel-request-system/actions/runs/45009188725) | `/health` showed version 1.0.0 and revision `d193d37…`. S1–S5 PASS. **STAGE-LIB-08 = request #4**. Marked known-good. |
+| Deploy faulty **1.0.1-lab-fault** (same schema) | [Deploy #3](https://github.com/Kcyren/laravel-request-system/actions/runs/45010289943) | S1–S2 PASS. **S3 FAIL** (POST /requests → 503, request form disabled). S4–S5 could not run because no request was created. **Rollback decision 10:04:25Z.** |
+| Roll back to **1.0.0** | [Deploy #4](https://github.com/Kcyren/laravel-request-system/actions/runs/45010910720) | Restored at 10:12:06Z. `/health` showed version 1.0.0. S1–S5 PASS. **S6 PASS: request #4 STAGE-LIB-08 still present.** |
+
+**Recovery result:** the rollback replaced only the application artifact (the
+`app` and `web` containers). The `db` service and its `db_data` volume were
+untouched, and no migration ran, so the schema and records persisted. That is
+why request #4 survived both the faulty release and the rollback. A database
+restore was not needed. The documented separate procedure is in
+[docs/lab8-staging-release.md](docs/lab8-staging-release.md#database-recovery-a-separate-procedure-not-done-by-the-rollback).
+
+**Promotion method:** Windows Smart App Control blocked the GitHub
+self-hosted runner, so the lab's *manual promotion with recorded approval*
+was used. Each deployment was approved on the `staging` environment gate.
+The approved run printed the digest-pinned command, which was run on the
+staging PC with `scripts/promote-local.sh`. Evidence logs are in
+`C:\lrs-staging\evidence\` and are kept out of Git.
 
 ## 7. Configuration audit (Lab 9)
 
@@ -283,6 +302,16 @@ php artisan app:config-audit                                 # app-context check
 sh config-audit/audit.sh --base-url https://staging.example  # + docroot, ports, MySQL exposure, TLS
 sh config-audit/permission-task.sh ./lab9-permissions-demo 750   # run twice (idempotence)
 ```
+
+### Lab 9 results (staging `lrs-staging`, release 1.0.0 / `d193d37`, 2026-11-22)
+
+| Activity | Evidence |
+|---|---|
+| Baseline audit | 24 checks. **1 required FAIL**: `database_access_scope` (the MySQL image granted the app account `ALL PRIVILEGES` on its schema). `tls_certificate` **UNVERIFIED** (no HTTPS endpoint on the local staging PC). Exit code 1. |
+| Task 1: scratch directory permissions (run twice) | before `755 www-data www-data` → run 1 `750` (*chmod applied*) → run 2 `750` (*no change*). Same result both times. |
+| Task 2: least-privilege database account (corrective, run twice) | `ALL PRIVILEGES` → `SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, REFERENCES, INDEX, ALTER` on the app schema only. Run 2 was unchanged. The audit then showed `database_access_scope PASS`, exit code 0. |
+| Drift | `debug_off PASS` → set `APP_DEBUG=true` and recreate (config cache rebuilt) → **`debug_off FAIL`, exit 1** → restore `false` and recreate → **all PASS, exit 0**. |
+| After all changes | `/health` ok, version 1.0.0, revision `d193d37…`; login page 200. |
 
 The non-secret baseline is `config-audit/baseline.example`. The output shows
 `PASS`, `FAIL` or `UNVERIFIED` for each check, and the script exits with
