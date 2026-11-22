@@ -95,9 +95,19 @@ separate from the Lab 4 stack on port 8080, with its own database volume
    and `docker compose -p lrs-staging ... ps` (the web, app and db services are healthy).
 3. The `web` container (Nginx) is the staging web service.
    `php artisan serve` is for local development only.
-4. Register the runner: **Settings → Actions → Runners → New self-hosted
-   runner → Windows**. Follow the commands GitHub shows and add the label
-   `staging` when `config.cmd` asks. Keep `run.cmd` open while deploying.
+4. **Promotion method: manual promotion with recorded approval.** A GitHub
+   self-hosted runner was registered on the staging PC, but Windows **Smart
+   App Control** blocked it (`Runner.Worker.dll … An Application Control
+   policy has blocked this file`). Turning that protection off would have
+   weakened the PC, so the team used the lab's documented alternative:
+   - The **Deploy to staging** workflow still stops at the `staging`
+     environment gate. GitHub records who approved it, when, and the comment.
+   - Only after approval, the gated job prints the exact digest-pinned
+     command and uploads `promotion-record.json`.
+   - The operator runs that command on the staging PC
+     (`sh scripts/promote-local.sh …`). It deploys the approved artifact, checks
+     `/health`, runs the smoke tests, and writes an evidence log to
+     `C:\lrs-staging\evidence\`.
 5. **Settings → Environments → New environment `staging`**:
    - **Required reviewers:** the designated approver. A solo student records
      this limitation in the report.
