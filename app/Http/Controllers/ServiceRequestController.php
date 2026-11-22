@@ -5,65 +5,113 @@ namespace App\Http\Controllers;
 use App\Models\ServiceRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\Rule;
 
 class ServiceRequestController extends Controller
 {
+    /** Allowed request states (Laboratory 2 status field, string(20)). */
+    public const STATUSES = ['pending', 'approved', 'rejected'];
+
+    /**
+     * GET /requests
+     * Students see only their own records (scoped by user_id); the
+     * administrator sees all. The scope applies to search and pagination too.
+     */
     public function index(Request $request)
     {
         Gate::authorize('viewAny', ServiceRequest::class);
+
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:150'],
+            'status' => ['nullable', 'in:'.implode(',', self::STATUSES)],
+        ]);
+
         $user = $request->user();
 
-        $requests = ($user->role === 'admin')
-            ? ServiceRequest::latest()->paginate(10)
-            : ServiceRequest::where('user_id', $user->id)->latest()->paginate(10);
+        $requests = ServiceRequest::query()
+            ->when(! $user->isAdmin(), fn ($q) => $q->where('user_id', $user->id))
+            ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('item_name', 'like', '%'.addcslashes($search, '%_\\').'%'))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->latest('id')
+            ->paginate(10)
+            ->withQueryString();
 
-        return view('requests.index', compact('requests'));
+        return view('requests.index', [
+            'requests' => $requests,
+            'filters' => $filters,
+            'statuses' => self::STATUSES,
+            'formDisabled' => config('release.lab_fault'),
+        ]);
     }
 
+    /**
+     * GET /requests/{id}
+     * Owner or administrator only. Another student's record returns 403.
+     */
     public function show(ServiceRequest $serviceRequest)
     {
         Gate::authorize('view', $serviceRequest);
-        return view('requests.show', compact('serviceRequest'));
+
+        return view('requests.show', [
+            'serviceRequest' => $serviceRequest,
+            'statuses' => self::STATUSES,
+        ]);
     }
 
+    /**
+     * POST /requests
+     * Students only. Ownership, requester details and status are assigned
+     * on the server; client-supplied user_id/status/is_admin/role are rejected.
+     */
     public function store(Request $request)
     {
         Gate::authorize('create', ServiceRequest::class);
 
+        // Laboratory 8 controlled-fault artifact: the request form is disabled.
+        abort_if(config('release.lab_fault'), 503, 'Request form is temporarily unavailable.');
+
         $validated = $request->validate([
-            'item_name' => 'required|string|max:150',
-            'quantity'  => 'required|integer|min:1',
-            'purpose'   => 'required|string|max:2000',
+            'item_name' => ['required', 'string', 'max:150'],
+            'quantity' => ['required', 'integer', 'min:1'],
+            'purpose' => ['required', 'string', 'max:2000'],
+            'user_id' => ['prohibited'],
+            'status' => ['prohibited'],
+            'is_admin' => ['prohibited'],
+            'role' => ['prohibited'],
         ]);
 
         $user = $request->user();
 
-        ServiceRequest::create([
-            'user_id'         => $user->id,
-            'requester_name'  => $user->name,
+        $serviceRequest = ServiceRequest::create([
+            'user_id' => $user->id,
+            'requester_name' => $user->name,
             'requester_email' => $user->email,
-            'item_name'       => $validated['item_name'],
-            'quantity'        => $validated['quantity'],
-            'purpose'         => $validated['purpose'],
-            'status'          => 'pending',
+            'item_name' => $validated['item_name'],
+            'quantity' => (int) $validated['quantity'],
+            'purpose' => $validated['purpose'],
+            'status' => 'pending',
         ]);
 
-        return redirect()->route('requests.index')->with('success', 'Request created successfully.');
+        return redirect()
+            ->route('requests.show', $serviceRequest)
+            ->with('success', "Request #{$serviceRequest->id} submitted.");
     }
 
+    /**
+     * PATCH /requests/{id}/status
+     * Administrator only. Authorized before any write; only status changes.
+     */
     public function updateStatus(Request $request, ServiceRequest $serviceRequest)
     {
         Gate::authorize('updateStatus', $serviceRequest);
 
         $validated = $request->validate([
-            'status' => ['required', Rule::in(['pending', 'approved', 'rejected'])],
+            'status' => ['required', 'in:'.implode(',', self::STATUSES)],
         ]);
 
-        $serviceRequest->update([
-            'status' => $validated['status'],
-        ]);
+        $serviceRequest->update(['status' => $validated['status']]);
 
-        return redirect()->route('requests.show', $serviceRequest)->with('success', 'Status updated successfully.');
+        return redirect()
+            ->route('requests.show', $serviceRequest)
+            ->with('success', 'Status updated.');
     }
 }

@@ -9,3 +9,10 @@
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore
+
+# Shell scripts and container config must keep LF endings (they run on Linux)
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker/** text eol=lf
+compose*.yaml text eol=lf
+config-audit/* text eol=lf
