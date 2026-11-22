@@ -1,0 +1,19 @@
+# =====================================================================
+# Laboratory 9 - Baseline for LOCAL drift practice (XAMPP / php artisan serve)
+# =====================================================================
+# Use only to rehearse the drift exercise on your own machine:
+#   php artisan app:config-audit --baseline=config-audit/baseline.local.example
+# The graded audit uses baseline.example against the staging target or
+# its disposable clone.
+
+APP_ENV_LABEL=local
+APP_DEBUG=false
+APP_URL_SCHEME=http
+SESSION_SECURE_COOKIE=false
+DB_CONNECTION=mysql
+DB_EXPECTED_HOST=127.0.0.1
+WRITABLE_PATHS=storage,bootstrap/cache
+WRITABLE_MODE_MAX=775
+ENV_FILE_IN_RELEASE=present
+FORBIDDEN_URLS=/.env,/composer.json,/artisan
+EXPOSED_PORTS=8000

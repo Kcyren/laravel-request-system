@@ -25,3 +25,25 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# --- Lab 4/8/9: runtime secrets and generated artifacts (never commit) ---
+.env.*
+!.env.example
+!.env.container.example
+!.env.db.example
+!.env.staging.example
+*.sql
+*.sql.gz
+*.pem
+*.key
+backups/
+.releases/
+smoke-results/
+release-manifest*.json
+*.sha256
+REVISION
+BUILD_DATE
+.lab-fault
+config-audit/*.log
+lab9-permissions-demo/
+/database/database.sqlite

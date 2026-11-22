@@ -1,13 +1,65 @@
+# Keep secrets, VCS data and host build output out of the Docker build context
+
+# Environment files / secrets (templates are fine but not needed in images)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+auth.json
+secrets/
+
+# Version control and CI metadata
 .git
+.gitignore
+.gitattributes
 .github
-node_modules
+
+# Host dependencies (re-installed from lockfiles inside the build)
 vendor
-storage/*.key
+node_modules
+
+# Database files, exports and backups
+*.sql
+*.sql.gz
+*.sqlite
+*.sqlite-journal
+database/*.sqlite
+backups/
+.releases/
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Logs and runtime state
+*.log
 storage/logs/*
+storage/framework/cache/data/*
 storage/framework/sessions/*
 storage/framework/views/*
-storage/framework/cache/*
-*.log
-docker-compose.log
-.DS_Store
+storage/app/private/*
+storage/pail
+bootstrap/cache/*.php
+.phpunit.cache
+.phpunit.result.cache
+
+# Local tooling / docs not needed at runtime
+.idea
+.vscode
+.claude
+docs/evidence
+config-audit/*.log
+lab9-permissions-demo
+smoke-results
+Dockerfile
+compose*.yaml
+.dockerignore

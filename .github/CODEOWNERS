@@ -1,0 +1,12 @@
+# Code owners (Laboratory 3). Replace the placeholders with the two
+# partners' real GitHub usernames, then uncomment the lines.
+# A pull request touching these paths then requests review from the owner.
+#
+# app/Policies/                     GITHUB_USER_REVIEWER
+# app/Http/Controllers/             GITHUB_USER_DRIVER
+# routes/                           GITHUB_USER_DRIVER
+# resources/views/                  GITHUB_USER_DRIVER
+# tests/                            GITHUB_USER_REVIEWER
+# Dockerfile compose*.yaml docker/  GITHUB_USER_DRIVER GITHUB_USER_REVIEWER
+# .github/workflows/ scripts/       GITHUB_USER_DRIVER GITHUB_USER_REVIEWER
+# config-audit/                     GITHUB_USER_REVIEWER

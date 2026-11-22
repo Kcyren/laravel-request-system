@@ -1,0 +1,26 @@
+# =====================================================================
+# Staging override (Laboratory 8)
+# =====================================================================
+# Staging NEVER builds: it runs the exact, approved, versioned images
+# (APP_IMAGE_REF / WEB_IMAGE_REF, ideally pinned by @sha256 digest), with
+# runtime settings from .env.staging on the staging host.
+#
+# Used by scripts/deploy.sh:
+#   docker compose -p lrs-staging -f compose.yaml -f compose.staging.yaml up -d --no-deps app web
+# Requires Docker Compose v2.24+ (!reset / !override).
+# =====================================================================
+services:
+  app:
+    build: !reset null
+    image: ${APP_IMAGE_REF:?APP_IMAGE_REF must name the approved app artifact}
+    pull_policy: missing
+    env_file: !override
+      - .env.staging
+
+  web:
+    build: !reset null
+    image: ${WEB_IMAGE_REF:?WEB_IMAGE_REF must name the approved web artifact}
+    pull_policy: missing
+    ports: !override
+      # Behind the instructor's TLS reverse proxy / load balancer
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8081}:8080"

@@ -1,0 +1,191 @@
+# Promote an approved, versioned artifact to the isolated STAGING target
+# (Laboratory 8).  This is continuous DELIVERY: the workflow stops at the
+# "staging" environment approval gate until the approver approves.
+#
+# Staging target: a Docker host running a GitHub SELF-HOSTED RUNNER with the
+# label "staging" (in this project: the team's own PC, Docker Desktop,
+# Compose project "lrs-staging", http://127.0.0.1:8081). The runner keeps
+# the staging state in a fixed folder (STAGING_DIR) that holds the private
+# .env.staging / .env.db and the .releases/ records - never the repo checkout.
+#
+# One-time repository setup (Settings -> Environments -> "staging"):
+#   - Required reviewers: the designated approver
+#   - Variables: STAGING_URL (http://127.0.0.1:8081), STAGING_DIR (C:/lrs-staging)
+#   - Secrets:   SMOKE_STUDENT_EMAIL, SMOKE_STUDENT_PASSWORD,
+#                SMOKE_ADMIN_EMAIL,   SMOKE_ADMIN_PASSWORD
+#
+# Rollback: run this workflow again with the known-good version.
+name: Deploy to staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to promote (must exist in GHCR, e.g. 1.0.0)"
+        required: true
+      run_migrations:
+        description: "Approved schema change: run migrations (takes a recovery point first)"
+        type: boolean
+        default: false
+      mark_known_good:
+        description: "Record this release as the known-good rollback target after it passes"
+        type: boolean
+        default: false
+      verify_request_id:
+        description: "Optional: STAGE-LIB-08 request ID that must still exist (post-rollback check)"
+        required: false
+      reason:
+        description: "Change / rollback reason (goes into the deployment log)"
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Identify artifact for approval
+    runs-on: ubuntu-24.04
+    outputs:
+      app_ref: ${{ steps.resolve.outputs.app_ref }}
+      web_ref: ${{ steps.resolve.outputs.web_ref }}
+      revision: ${{ steps.resolve.outputs.revision }}
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable digests
+        id: resolve
+        run: |
+          REPO="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          V="${{ inputs.version }}"
+          APP_DIGEST="$(docker buildx imagetools inspect "ghcr.io/$REPO-app:$V" --format '{{json .Manifest}}' | jq -r .digest)"
+          WEB_DIGEST="$(docker buildx imagetools inspect "ghcr.io/$REPO-web:$V" --format '{{json .Manifest}}' | jq -r .digest)"
+          docker pull -q "ghcr.io/$REPO-app@$APP_DIGEST" >/dev/null
+          REVISION="$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ghcr.io/$REPO-app@$APP_DIGEST")"
+          echo "app_ref=ghcr.io/$REPO-app@$APP_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "web_ref=ghcr.io/$REPO-web@$WEB_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Approval request: staging promotion of ${V}"
+            echo ""
+            echo "Approver: verify the CI result, artifact identifier, target and migration plan before approving."
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Version | \`$V\` |"
+            echo "| Commit (image label) | \`$REVISION\` |"
+            echo "| CI for commit | ${{ github.server_url }}/${{ github.repository }}/commit/$REVISION/checks |"
+            echo "| App artifact | \`ghcr.io/$REPO-app@$APP_DIGEST\` |"
+            echo "| Web artifact | \`ghcr.io/$REPO-web@$WEB_DIGEST\` |"
+            echo "| Target | staging (${{ vars.STAGING_URL }}) |"
+            echo "| Migration requested | ${{ inputs.run_migrations }} |"
+            echo "| Reason | ${{ inputs.reason }} |"
+            echo "| Requested by | ${{ github.actor }} at $(date -u +%Y-%m-%dT%H:%M:%SZ) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy approved artifact and smoke test
+    needs: prepare
+    runs-on: [self-hosted, staging]
+    # ---- APPROVAL GATE: job waits here for the staging required reviewer ----
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      STAGING_DIR: ${{ vars.STAGING_DIR }}
+      WEB_PORT: "8081"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.revision }}
+
+      - name: Copy deployment files (no secrets) into the staging folder
+        run: |
+          test -f "$STAGING_DIR/.env.staging" || { echo "::error::$STAGING_DIR/.env.staging missing (approved runtime setup)"; exit 1; }
+          test -f "$STAGING_DIR/.env.db" || { echo "::error::$STAGING_DIR/.env.db missing"; exit 1; }
+          cp compose.yaml compose.staging.yaml "$STAGING_DIR/"
+          mkdir -p "$STAGING_DIR/scripts"
+          cp scripts/*.sh "$STAGING_DIR/scripts/"
+
+      - name: Log in to GHCR (read-only, this job only)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Promote artifact
+        run: |
+          FLAGS=""
+          [ "${{ inputs.run_migrations }}" = "true" ] && FLAGS="--migrate"
+          cd "$STAGING_DIR"
+          mkdir -p .releases
+          echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] reason: ${{ inputs.reason }} (run ${{ github.run_id }}, by ${{ github.actor }})" >> .releases/deploy.log 2>/dev/null || true
+          sh scripts/deploy.sh \
+            --version '${{ inputs.version }}' \
+            --app-ref '${{ needs.prepare.outputs.app_ref }}' \
+            --web-ref '${{ needs.prepare.outputs.web_ref }}' $FLAGS 2>&1 | tee "$GITHUB_WORKSPACE/deploy.log"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io || true
+
+      - name: Record deployed revision
+        run: |
+          {
+            echo "## Deployed"
+            echo "- Version: \`${{ inputs.version }}\`"
+            echo "- Revision: \`${{ needs.prepare.outputs.revision }}\`"
+            echo "- Health: \`$(curl -s ${{ vars.STAGING_URL }}/health)\`"
+            echo "- Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run smoke tests (fictional accounts)
+        env:
+          BASE_URL: ${{ vars.STAGING_URL }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+          EXPECTED_REVISION: ${{ needs.prepare.outputs.revision }}
+          STUDENT_EMAIL: ${{ secrets.SMOKE_STUDENT_EMAIL }}
+          STUDENT_PASSWORD: ${{ secrets.SMOKE_STUDENT_PASSWORD }}
+          ADMIN_EMAIL: ${{ secrets.SMOKE_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+          VERIFY_REQUEST_ID: ${{ inputs.verify_request_id }}
+          LABEL: ${{ inputs.verify_request_id && 'STAGE-LIB-08-R2' || 'STAGE-LIB-08' }}
+        run: |
+          sh scripts/smoke-test.sh | tee smoke-summary.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Add smoke results to summary
+        if: always()
+        run: |
+          { echo "## Smoke tests"; echo '```'; cat smoke-summary.txt 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark known-good
+        if: success() && inputs.mark_known_good
+        run: cp "$STAGING_DIR/.releases/current" "$STAGING_DIR/.releases/known-good"
+
+      - name: Rollback criteria
+        if: failure()
+        run: |
+          {
+            echo "## ROLLBACK CRITERIA MET"
+            echo "A required step or smoke test failed at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+            echo "Record the rollback decision, then re-run **Deploy to staging** with the known-good version."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deploy-evidence-${{ inputs.version }}-${{ github.run_id }}
+          path: |
+            deploy.log
+            smoke-summary.txt
+            smoke-results/

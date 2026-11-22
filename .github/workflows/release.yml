@@ -1,0 +1,126 @@
+# Build a VERSIONED, immutable release artifact (Laboratory 8).
+#
+# - Tag push v1.2.3          -> builds release 1.2.3
+# - Manual run (dispatch)    -> builds the given version; tick "lab_fault"
+#                               ONLY for the controlled faulty artifact
+#                               (e.g. 1.0.1-lab-fault) in isolated staging.
+#
+# Output: app + web images in GHCR tagged with the version, their sha256
+# digests, and release-manifest.json (+ .sha256) as a workflow artifact.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 1.0.1-lab-fault)"
+        required: true
+      lab_fault:
+        description: "Build the CONTROLLED FAULTY artifact (disables request form)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build and publish artifact
+    needs: ci
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      app_ref: ${{ steps.refs.outputs.app_ref }}
+      web_ref: ${{ steps.refs.outputs.web_ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version and image names
+        id: meta
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="${{ inputs.version }}"; fi
+          REPO="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "app_image=ghcr.io/$REPO-app" >> "$GITHUB_OUTPUT"
+          echo "web_image=ghcr.io/$REPO-web" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "lab_fault=${{ inputs.lab_fault || false }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push app image
+        id: app
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: app
+          push: true
+          tags: ${{ steps.meta.outputs.app_image }}:${{ steps.meta.outputs.version }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.created }}
+            LAB_FAULT=${{ steps.meta.outputs.lab_fault }}
+
+      - name: Build and push web image
+        id: web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          push: true
+          tags: ${{ steps.meta.outputs.web_image }}:${{ steps.meta.outputs.version }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+
+      - name: Write release manifest
+        id: refs
+        run: |
+          APP_REF="${{ steps.meta.outputs.app_image }}@${{ steps.app.outputs.digest }}"
+          WEB_REF="${{ steps.meta.outputs.web_image }}@${{ steps.web.outputs.digest }}"
+          echo "app_ref=$APP_REF" >> "$GITHUB_OUTPUT"
+          echo "web_ref=$WEB_REF" >> "$GITHUB_OUTPUT"
+          cat > release-manifest.json <<EOF
+          {
+            "version": "${{ steps.meta.outputs.version }}",
+            "commit": "${{ github.sha }}",
+            "built_at": "${{ steps.meta.outputs.created }}",
+            "lab_fault": ${{ steps.meta.outputs.lab_fault }},
+            "ci_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "app_image": "$APP_REF",
+            "web_image": "$WEB_REF"
+          }
+          EOF
+          sha256sum release-manifest.json > release-manifest.json.sha256
+          {
+            echo "## Release ${{ steps.meta.outputs.version }}"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| App artifact | \`$APP_REF\` |"
+            echo "| Web artifact | \`$WEB_REF\` |"
+            echo "| CI | passed (job \`ci\`) |"
+            echo "| Lab fault build | ${{ steps.meta.outputs.lab_fault }} |"
+            echo "| Manifest sha256 | \`$(cut -d' ' -f1 release-manifest.json.sha256)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.meta.outputs.version }}
+          path: |
+            release-manifest.json
+            release-manifest.json.sha256

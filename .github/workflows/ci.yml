@@ -1,0 +1,61 @@
+# Continuous integration: required checks for every push / pull request.
+# The release and deploy workflows reuse this so a release is only built
+# from a commit whose tests and audits passed.
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests and security checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: mbstring, pdo_sqlite, pdo_mysql
+          coverage: none
+
+      - name: Install dependencies (from composer.lock)
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Prepare test environment (no real secrets)
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run feature tests (Lab 3 access matrix + Lab 8 health)
+        run: php artisan test
+
+      - name: Composer security audit
+        run: composer audit
+
+      - name: Validate shell scripts
+        run: |
+          for f in scripts/*.sh config-audit/*.sh docker/app/*.sh; do sh -n "$f"; done
+
+      - name: Validate Compose configuration with template env files
+        run: |
+          cp .env.container.example .env.container
+          cp .env.db.example .env.db
+          cp .env.staging.example .env.staging
+          docker compose config --quiet
+          APP_IMAGE_REF=example/app:ci WEB_IMAGE_REF=example/web:ci \
+            docker compose -f compose.yaml -f compose.staging.yaml config --quiet
+
+      - name: Check that no secrets are tracked
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$|\.env\.(container|db|staging)$|\.sql(\.gz)?$|\.pem$'; then
+            echo "Secret or database export tracked in Git" >&2; exit 1
+          fi

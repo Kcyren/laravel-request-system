@@ -1,0 +1,61 @@
+# =====================================================================
+# Laboratory 9 - Declarative, NON-SECRET configuration baseline (staging)
+# =====================================================================
+# This file describes the APPROVED state. audit.sh / `php artisan
+# app:config-audit` are the imperative checks that compare the effective
+# configuration with it. Replace values with the instructor's actual path,
+# permission and port requirements. NEVER put passwords, keys, tokens or
+# hostnames of private systems with credentials here.
+#
+# Parsed as KEY=VALUE text only (never sourced/executed).
+
+# Approved staging target for this team: Docker Compose project "lrs-staging"
+# on the team PC (self-hosted runner), web published on 127.0.0.1:8081 only.
+# It has no public HTTPS endpoint, so APP_URL is http and secure cookies are
+# off; TLS is reported UNVERIFIED. On an HTTPS staging host set
+# APP_URL_SCHEME=https and SESSION_SECURE_COOKIE=true.
+
+# --- Application ------------------------------------------------------
+APP_ENV_LABEL=staging
+APP_DEBUG=false
+APP_URL_SCHEME=http
+SESSION_SECURE_COOKIE=false
+LOG_LEVEL_ALLOWED=info,notice,warning,error,critical,alert,emergency
+# The release artifact must not contain a .env file (runtime env only)
+ENV_FILE_IN_RELEASE=absent
+# Staging service caches configuration at startup (entrypoint runs config:cache)
+CONFIG_CACHED=true
+
+# --- Web server -------------------------------------------------------
+# Nginx must serve ONLY Laravel's public/ directory
+DOCUMENT_ROOT=/var/www/html/public
+# Paths that must NOT be downloadable over HTTP if the docroot is correct
+FORBIDDEN_URLS=/.env,/composer.json,/artisan,/storage/logs/laravel.log,/config/app.php
+
+# --- Writable paths ---------------------------------------------------
+WRITABLE_PATHS=storage,bootstrap/cache
+# Maximum permission bits (no world-writable); owner/group = service identity
+WRITABLE_MODE_MAX=775
+WRITABLE_OWNER=www-data
+
+# --- Service identity -------------------------------------------------
+# PHP-FPM / artisan run as this restricted (non-root) account
+SERVICE_USER=www-data
+
+# --- Database access --------------------------------------------------
+DB_CONNECTION=mysql
+# Private Compose service name - MySQL is not published to the host/internet
+DB_EXPECTED_HOST=db
+DB_EXPECTED_PORT=3306
+# Runtime account: schema-scoped privileges needed by the app + migrations
+DB_ALLOWED_PRIVILEGES=SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP,REFERENCES
+
+# --- Exposed services -------------------------------------------------
+# Only these TCP ports may be published by the staging stack
+# (8081 bound to 127.0.0.1 = reachable only from this PC)
+EXPOSED_PORTS=8081
+# Ports that must NOT be reachable from outside (MySQL, PHP-FPM, Redis)
+UNEXPOSED_PORTS=3306,9000,6379
+
+# --- TLS --------------------------------------------------------------
+TLS_MIN_DAYS_VALID=14
