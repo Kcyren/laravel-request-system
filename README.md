@@ -254,7 +254,8 @@ Release notes are in **[CHANGELOG.md](CHANGELOG.md)**.
 | Health check | `GET /health` → `status`, `version`, `revision`, `checks.database` |
 | CI (required checks) | `.github/workflows/ci.yml` |
 | Versioned artifact | `.github/workflows/release.yml` (GHCR images pinned by digest, `release-manifest.json` + sha256) |
-| Approval gate and deploy | `.github/workflows/deploy-staging.yml` (environment `staging` with required reviewers) |
+| Approval gate | `.github/workflows/deploy-staging.yml`: the `staging` environment requires a reviewer; after approval it prints the exact digest-pinned promotion command |
+| Promotion on the staging PC | `scripts/promote-local.sh` (manual promotion with recorded approval; deploy + smoke tests + evidence log) |
 | Host scripts | `scripts/deploy.sh`, `scripts/rollback.sh`, `compose.staging.yaml` |
 | Smoke tests | `scripts/smoke-test.sh` (S1 health and revision, S2 student login, S3 `STAGE-LIB-08` creation, S4 admin update, S5 student restriction, S6 record still present) |
 | Faulty artifact | Release workflow with `lab_fault=true` (e.g. `1.0.1-lab-fault`, which disables the request form; same schema) |
