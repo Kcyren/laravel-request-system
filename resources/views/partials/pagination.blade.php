@@ -1,17 +1,15 @@
 @if ($paginator->hasPages())
-    <nav aria-label="Pagination" style="display:flex; gap:1rem; align-items:center;">
-        @if ($paginator->onFirstPage())
-            <span style="color:var(--muted);">&laquo; Previous</span>
-        @else
-            <a href="{{ $paginator->previousPageUrl() }}" rel="prev">&laquo; Previous</a>
-        @endif
-
-        <span>Page {{ $paginator->currentPage() }} of {{ $paginator->lastPage() }}</span>
-
-        @if ($paginator->hasMorePages())
-            <a href="{{ $paginator->nextPageUrl() }}" rel="next">Next &raquo;</a>
-        @else
-            <span style="color:var(--muted);">Next &raquo;</span>
-        @endif
+    <nav class="pager" aria-label="Pagination">
+        <span>Showing {{ $paginator->firstItem() }}–{{ $paginator->lastItem() }} of {{ $paginator->total() }}</span>
+        <span style="display:flex; gap:8px;">
+            <a href="{{ $paginator->previousPageUrl() ?? '#' }}" rel="prev" class="btn btn-secondary btn-sm"
+               @if ($paginator->onFirstPage()) aria-disabled="true" tabindex="-1" @endif>
+                <x-icon name="arrow-left" /> Previous
+            </a>
+            <a href="{{ $paginator->nextPageUrl() ?? '#' }}" rel="next" class="btn btn-secondary btn-sm"
+               @unless ($paginator->hasMorePages()) aria-disabled="true" tabindex="-1" @endunless>
+                Next <x-icon name="arrow-right" />
+            </a>
+        </span>
     </nav>
 @endif

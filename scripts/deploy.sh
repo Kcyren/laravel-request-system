@@ -72,7 +72,7 @@ $DC up -d --wait db
 # 3. Migration status, evaluated with the NEW artifact
 STATUS_OUT="$($DC run --rm --no-deps -T app php artisan migrate:status --no-ansi 2>&1 || true)"
 echo "$STATUS_OUT" | tee -a .releases/deploy.log
-if echo "$STATUS_OUT" | grep -q "Pending"; then
+if echo "$STATUS_OUT" | grep -Eq "Pending|Migration table not found"; then
     SCHEMA_CHANGE=yes
 else
     SCHEMA_CHANGE=no

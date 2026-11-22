@@ -27,8 +27,16 @@ class ServiceRequestController extends Controller
 
         $user = $request->user();
 
-        $requests = ServiceRequest::query()
-            ->when(! $user->isAdmin(), fn ($q) => $q->where('user_id', $user->id))
+        // Same ownership scope for the summary cards, search, filters and pagination.
+        $scoped = fn () => ServiceRequest::query()
+            ->when(! $user->isAdmin(), fn ($q) => $q->where('user_id', $user->id));
+
+        $stats = $scoped()
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        $requests = $scoped()
             ->when($filters['search'] ?? null, fn ($q, $search) => $q->where('item_name', 'like', '%'.addcslashes($search, '%_\\').'%'))
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->latest('id')
@@ -39,6 +47,24 @@ class ServiceRequestController extends Controller
             'requests' => $requests,
             'filters' => $filters,
             'statuses' => self::STATUSES,
+            'stats' => [
+                'total' => (int) $stats->sum(),
+                'pending' => (int) ($stats['pending'] ?? 0),
+                'approved' => (int) ($stats['approved'] ?? 0),
+                'rejected' => (int) ($stats['rejected'] ?? 0),
+            ],
+            'formDisabled' => config('release.lab_fault'),
+        ]);
+    }
+
+    /**
+     * GET /requests/create - students only.
+     */
+    public function create()
+    {
+        Gate::authorize('create', ServiceRequest::class);
+
+        return view('requests.create', [
             'formDisabled' => config('release.lab_fault'),
         ]);
     }

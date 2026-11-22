@@ -9,11 +9,17 @@
 #
 # Parsed as KEY=VALUE text only (never sourced/executed).
 
+# Approved staging target for this team: Docker Compose project "lrs-staging"
+# on the team PC (self-hosted runner), web published on 127.0.0.1:8081 only.
+# It has no public HTTPS endpoint, so APP_URL is http and secure cookies are
+# off; TLS is reported UNVERIFIED. On an HTTPS staging host set
+# APP_URL_SCHEME=https and SESSION_SECURE_COOKIE=true.
+
 # --- Application ------------------------------------------------------
 APP_ENV_LABEL=staging
 APP_DEBUG=false
-APP_URL_SCHEME=https
-SESSION_SECURE_COOKIE=true
+APP_URL_SCHEME=http
+SESSION_SECURE_COOKIE=false
 LOG_LEVEL_ALLOWED=info,notice,warning,error,critical,alert,emergency
 # The release artifact must not contain a .env file (runtime env only)
 ENV_FILE_IN_RELEASE=absent
@@ -45,8 +51,9 @@ DB_EXPECTED_PORT=3306
 DB_ALLOWED_PRIVILEGES=SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP,REFERENCES
 
 # --- Exposed services -------------------------------------------------
-# Only these TCP ports may listen publicly on the staging host
-EXPOSED_PORTS=80,443
+# Only these TCP ports may be published by the staging stack
+# (8081 bound to 127.0.0.1 = reachable only from this PC)
+EXPOSED_PORTS=8081
 # Ports that must NOT be reachable from outside (MySQL, PHP-FPM, Redis)
 UNEXPOSED_PORTS=3306,9000,6379
 

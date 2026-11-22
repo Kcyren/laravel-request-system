@@ -13,9 +13,9 @@ and Security laboratories:
 | 8 | Controlled staging release: versioned artifact, approval gate, smoke tests, rollback |
 | 9 | Configuration audit, idempotent configuration task, drift correction |
 
-- **Students:** _Surname1, FirstName1_ · _Surname2, FirstName2_
-- **Course / Year / Section:** _fill in_
-- **Repository:** _https://github.com/USERNAME/laravel-request-system_
+- **Student:** Cyrene Jane C. Teodocio
+- **Course / Year / Section:** BSIT 4-3
+- **Repository:** https://github.com/Kcyren/laravel-request-system
 - **Deployed / staging URL:** _fill in if available_
 
 ---
@@ -34,7 +34,7 @@ and Security laboratories:
 ## 2. Local installation (Lab 1)
 
 ```sh
-git clone https://github.com/USERNAME/laravel-request-system.git
+git clone https://github.com/Kcyren/laravel-request-system.git
 cd laravel-request-system
 composer install
 cp .env.example .env          # then set DB_USERNAME / DB_PASSWORD privately
@@ -137,7 +137,11 @@ be mass-assigned.
 | GET | `/requests/{id}` | `show` | owner or administrator (`Gate::authorize('view')`) |
 | POST | `/requests` | `store` | students only. `item_name` required, string, ≤150; `quantity` required, integer, ≥1; `purpose` required, string, ≤2000; `user_id`, `status`, `is_admin`, `role` **prohibited**. Owner, name, email and `pending` are set on the server. |
 | PATCH | `/requests/{id}/status` | `updateStatus` | administrator only (`Gate::authorize('updateStatus')` before any write); status ∈ pending/approved/rejected |
-| GET | `/health` | HealthController | public, non-secret status, version, revision |
+| GET | `/requests/create` | `create` | students only (new-request page) |
+| GET | `/account` | AccountController@show | own profile only |
+| PUT | `/account/password` | AccountController@updatePassword | current password required; new password ≥ 8 chars with letters and numbers; hashed; throttled |
+| GET | `/accounts` | AccountController@index | administrator only, read-only (roles are never editable in the UI) |
+| GET | `/health` | HealthController | public, stateless, non-secret status, version, revision |
 
 **Denial response:** another student's record returns **403 Forbidden**
 (policy denial), consistently for viewing and for status updates.

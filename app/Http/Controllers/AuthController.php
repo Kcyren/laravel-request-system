@@ -19,13 +19,15 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        if (Auth::attempt($credentials)) {
+        if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
+
             return redirect()->intended(route('requests.index'));
         }
 
+        // Generic message: never reveal whether the email exists.
         return back()->withErrors([
-            'email' => 'Invalid credentials provided.',
+            'email' => 'These credentials do not match our records.',
         ])->onlyInput('email');
     }
 
@@ -35,6 +37,6 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('login');
+        return redirect()->route('login')->with('status', 'You have been signed out.');
     }
 }

@@ -1,17 +1,18 @@
 # Promote an approved, versioned artifact to the isolated STAGING target
 # (Laboratory 8).  This is continuous DELIVERY: the workflow stops at the
-# "staging" environment approval gate until a designated reviewer approves.
+# "staging" environment approval gate until the approver approves.
+#
+# Staging target: a Docker host running a GitHub SELF-HOSTED RUNNER with the
+# label "staging" (in this project: the team's own PC, Docker Desktop,
+# Compose project "lrs-staging", http://127.0.0.1:8081). The runner keeps
+# the staging state in a fixed folder (STAGING_DIR) that holds the private
+# .env.staging / .env.db and the .releases/ records - never the repo checkout.
 #
 # One-time repository setup (Settings -> Environments -> "staging"):
-#   - Required reviewers: the designated approver (not the person deploying)
-#   - Environment variables: STAGING_URL, STAGING_DIR, WEB_PORT (optional)
-#   - Environment secrets:   STAGING_HOST, STAGING_USER, STAGING_SSH_KEY,
-#                            STAGING_KNOWN_HOSTS,
-#                            SMOKE_STUDENT_EMAIL, SMOKE_STUDENT_PASSWORD,
-#                            SMOKE_ADMIN_EMAIL, SMOKE_ADMIN_PASSWORD
-# If environment approvals are unavailable on your plan, use the
-# instructor-controlled manual promotion (scripts/deploy.sh) with recorded
-# approval - see docs/lab8-staging-release.md.
+#   - Required reviewers: the designated approver
+#   - Variables: STAGING_URL (http://127.0.0.1:8081), STAGING_DIR (C:/lrs-staging)
+#   - Secrets:   SMOKE_STUDENT_EMAIL, SMOKE_STUDENT_PASSWORD,
+#                SMOKE_ADMIN_EMAIL,   SMOKE_ADMIN_PASSWORD
 #
 # Rollback: run this workflow again with the known-good version.
 name: Deploy to staging
@@ -91,39 +92,51 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
-    name: Deploy approved artifact
+    name: Deploy approved artifact and smoke test
     needs: prepare
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, staging]
     # ---- APPROVAL GATE: job waits here for the staging required reviewer ----
     environment:
       name: staging
       url: ${{ vars.STAGING_URL }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      STAGING_DIR: ${{ vars.STAGING_DIR }}
+      WEB_PORT: "8081"
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare.outputs.revision }}
 
-      - name: Configure SSH
+      - name: Copy deployment files (no secrets) into the staging folder
         run: |
-          install -m 700 -d ~/.ssh
-          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_staging
-          chmod 600 ~/.ssh/id_staging
-          echo "${{ secrets.STAGING_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          test -f "$STAGING_DIR/.env.staging" || { echo "::error::$STAGING_DIR/.env.staging missing (approved runtime setup)"; exit 1; }
+          test -f "$STAGING_DIR/.env.db" || { echo "::error::$STAGING_DIR/.env.db missing"; exit 1; }
+          cp compose.yaml compose.staging.yaml "$STAGING_DIR/"
+          mkdir -p "$STAGING_DIR/scripts"
+          cp scripts/*.sh "$STAGING_DIR/scripts/"
 
-      - name: Copy deployment files (no secrets) to staging
-        run: |
-          scp -i ~/.ssh/id_staging -r compose.yaml compose.staging.yaml scripts \
-            "${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:${{ vars.STAGING_DIR }}/"
+      - name: Log in to GHCR (read-only, this job only)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Promote artifact
         run: |
           FLAGS=""
-          [ "${{ inputs.run_migrations }}" = "true" ] && FLAGS="$FLAGS --migrate"
-          ssh -i ~/.ssh/id_staging "${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}" \
-            "cd '${{ vars.STAGING_DIR }}' && WEB_PORT='${{ vars.WEB_PORT || '8081' }}' sh scripts/deploy.sh \
-              --version '${{ inputs.version }}' \
-              --app-ref '${{ needs.prepare.outputs.app_ref }}' \
-              --web-ref '${{ needs.prepare.outputs.web_ref }}' $FLAGS" | tee deploy.log
+          [ "${{ inputs.run_migrations }}" = "true" ] && FLAGS="--migrate"
+          cd "$STAGING_DIR"
+          mkdir -p .releases
+          echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] reason: ${{ inputs.reason }} (run ${{ github.run_id }}, by ${{ github.actor }})" >> .releases/deploy.log 2>/dev/null || true
+          sh scripts/deploy.sh \
+            --version '${{ inputs.version }}' \
+            --app-ref '${{ needs.prepare.outputs.app_ref }}' \
+            --web-ref '${{ needs.prepare.outputs.web_ref }}' $FLAGS 2>&1 | tee "$GITHUB_WORKSPACE/deploy.log"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io || true
 
       - name: Record deployed revision
         run: |
@@ -131,18 +144,11 @@ jobs:
             echo "## Deployed"
             echo "- Version: \`${{ inputs.version }}\`"
             echo "- Revision: \`${{ needs.prepare.outputs.revision }}\`"
-            echo "- Approved environment: staging"
+            echo "- Health: \`$(curl -s ${{ vars.STAGING_URL }}/health)\`"
             echo "- Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: deploy-log-${{ inputs.version }}-${{ github.run_id }}
-          path: deploy.log
-
       - name: Run smoke tests (fictional accounts)
-        id: smoke
         env:
           BASE_URL: ${{ vars.STAGING_URL }}
           EXPECTED_VERSION: ${{ inputs.version }}
@@ -153,25 +159,33 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
           VERIFY_REQUEST_ID: ${{ inputs.verify_request_id }}
           LABEL: ${{ inputs.verify_request_id && 'STAGE-LIB-08-R2' || 'STAGE-LIB-08' }}
-        run: sh scripts/smoke-test.sh
+        run: |
+          sh scripts/smoke-test.sh | tee smoke-summary.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Add smoke results to summary
+        if: always()
+        run: |
+          { echo "## Smoke tests"; echo '```'; cat smoke-summary.txt 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mark known-good
         if: success() && inputs.mark_known_good
-        run: |
-          ssh -i ~/.ssh/id_staging "${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}" \
-            "cd '${{ vars.STAGING_DIR }}' && cp .releases/current .releases/known-good"
+        run: cp "$STAGING_DIR/.releases/current" "$STAGING_DIR/.releases/known-good"
 
       - name: Rollback criteria
         if: failure()
         run: |
           {
             echo "## ROLLBACK CRITERIA MET"
-            echo "A required smoke test failed at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+            echo "A required step or smoke test failed at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
             echo "Record the rollback decision, then re-run **Deploy to staging** with the known-good version."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: smoke-results-${{ inputs.version }}-${{ github.run_id }}
-          path: smoke-results/
+          name: deploy-evidence-${{ inputs.version }}-${{ github.run_id }}
+          path: |
+            deploy.log
+            smoke-summary.txt
+            smoke-results/

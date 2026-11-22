@@ -142,6 +142,35 @@ The run 2 result must equal the run 1 result. That equality is the evidence
 of idempotence. Each run also appends a line to
 `config-audit/permission-task.log`, which is git-ignored.
 
+**On Windows (this team's PC).** `chmod` and `stat` have no meaning on NTFS,
+so run the task inside the staging app container, which is Linux:
+
+```sh
+DC="docker compose -p lrs-staging -f compose.yaml -f compose.staging.yaml"
+$DC exec app sh -c 'mkdir -p /tmp/lab9-permissions-demo && chmod 755 /tmp/lab9-permissions-demo'   # scratch dir
+$DC exec app sh -c 'stat -c "%a %U %G" /tmp/lab9-permissions-demo'
+$DC exec app sh -c 'LOG=/tmp/task.log sh config-audit/permission-task.sh /tmp/lab9-permissions-demo 750'   # run 1
+$DC exec app sh -c 'LOG=/tmp/task.log sh config-audit/permission-task.sh /tmp/lab9-permissions-demo 750'   # run 2
+```
+
+### Corrective task found by the audit: least-privilege database account
+
+The first staging audit reported `database_access_scope FAIL`, because the
+MySQL image gives the app account `ALL PRIVILEGES` on its schema.
+`config-audit/db-least-privilege.sh` replaces that grant with exactly the
+baseline privileges, `SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX,
+DROP, REFERENCES`, on that schema only. It is idempotent: run 2 shows the
+same grants as run 1.
+
+```sh
+cd C:/lrs-staging   # in Git Bash; run with the repo's config-audit folder
+sh /c/xampp/htdocs/laravel-request-system/config-audit/db-least-privilege.sh \
+   "docker compose -p lrs-staging -f compose.yaml -f compose.staging.yaml"   # run 1, then run 2
+```
+
+Record the grants before and after each run, then rerun the audit and
+confirm `database_access_scope PASS`.
+
 ## 7. Drift detection and correction (disposable clone only)
 
 ```sh

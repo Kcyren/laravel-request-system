@@ -1,75 +1,129 @@
 @extends('layouts.app')
 
-@section('title', 'Requests')
+@php($isAdmin = auth()->user()->isAdmin())
+
+@section('title', $isAdmin ? 'All Requests' : 'My Requests')
+@section('crumb', $isAdmin ? 'All requests' : 'My requests')
 
 @section('content')
-    @can('create', App\Models\ServiceRequest::class)
-        <div class="card">
-            <h3>New Service Request</h3>
-            @if ($formDisabled)
-                {{-- Lab 8 controlled-fault artifact only --}}
-                <p class="flash-err" data-testid="form-disabled">The request form is temporarily unavailable.</p>
-            @else
-                <form method="POST" action="{{ route('requests.store') }}" data-testid="request-form">
-                    @csrf
-                    <div class="row">
-                        <label for="item_name">Item Name</label>
-                        <input id="item_name" type="text" name="item_name" maxlength="150" value="{{ old('item_name') }}" required>
-                    </div>
-                    <div class="row">
-                        <label for="quantity">Quantity</label>
-                        <input id="quantity" type="number" name="quantity" min="1" step="1" value="{{ old('quantity', 1) }}" required>
-                    </div>
-                    <div class="row">
-                        <label for="purpose">Purpose</label>
-                        <textarea id="purpose" name="purpose" rows="3" maxlength="2000" required>{{ old('purpose') }}</textarea>
-                    </div>
-                    <button type="submit">Submit Request</button>
-                </form>
-            @endif
+    <div class="page-head">
+        <div>
+            <h1>{{ $isAdmin ? 'All Requests' : 'My Requests' }}</h1>
+            <p>{{ $isAdmin ? 'Review and decide on requests from every student.' : 'Track the equipment and services you have requested.' }}</p>
         </div>
-    @endcan
+        @can('create', App\Models\ServiceRequest::class)
+            <a href="{{ route('requests.create') }}" class="btn btn-primary"><x-icon name="plus" /> New request</a>
+        @endcan
+    </div>
+
+    @if ($formDisabled)
+        {{-- Lab 8 controlled-fault artifact only --}}
+        <div class="alert alert-warn" role="alert" data-testid="form-disabled">
+            <x-icon name="alert" />
+            <div>The request form is temporarily unavailable. Please try again later.</div>
+        </div>
+    @endif
+
+    <section class="stats" aria-label="Summary">
+        <div class="card stat">
+            <span class="stat-icon total"><x-icon name="list" /></span>
+            <div><div class="stat-value">{{ $stats['total'] }}</div><div class="stat-label">Total requests</div></div>
+        </div>
+        <div class="card stat">
+            <span class="stat-icon pending"><x-icon name="clock" /></span>
+            <div><div class="stat-value">{{ $stats['pending'] }}</div><div class="stat-label">Pending</div></div>
+        </div>
+        <div class="card stat">
+            <span class="stat-icon approved"><x-icon name="check-circle" /></span>
+            <div><div class="stat-value">{{ $stats['approved'] }}</div><div class="stat-label">Approved</div></div>
+        </div>
+        <div class="card stat">
+            <span class="stat-icon rejected"><x-icon name="x-circle" /></span>
+            <div><div class="stat-value">{{ $stats['rejected'] }}</div><div class="stat-label">Rejected</div></div>
+        </div>
+    </section>
 
     <div class="card">
-        <h3>{{ auth()->user()->isAdmin() ? 'All Requests' : 'My Requests' }}</h3>
-
-        <form method="GET" action="{{ route('requests.index') }}" class="filters row">
-            <div>
-                <label for="search">Search item</label>
-                <input id="search" type="text" name="search" maxlength="150" value="{{ $filters['search'] ?? '' }}">
+        <form method="GET" action="{{ route('requests.index') }}" class="toolbar" role="search">
+            <div class="input-group">
+                <x-icon name="search" class="icon icon-left" />
+                <label for="search" class="sr-only">Search by item</label>
+                <input id="search" type="search" name="search" maxlength="150" class="input"
+                       placeholder="Search by item name…" value="{{ $filters['search'] ?? '' }}">
             </div>
-            <div>
-                <label for="status-filter">Status</label>
-                <select id="status-filter" name="status">
-                    <option value="">Any</option>
-                    @foreach ($statuses as $status)
-                        <option value="{{ $status }}" @selected(($filters['status'] ?? '') === $status)>{{ $status }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div style="flex:0 0 auto;"><button type="submit">Filter</button></div>
+            <label for="status-filter" class="sr-only">Status</label>
+            <select id="status-filter" name="status" class="select">
+                <option value="">All statuses</option>
+                @foreach ($statuses as $status)
+                    <option value="{{ $status }}" @selected(($filters['status'] ?? '') === $status)>{{ ucfirst($status) }}</option>
+                @endforeach
+            </select>
+            <button type="submit" class="btn btn-secondary">Apply</button>
+            @if (! empty($filters['search']) || ! empty($filters['status']))
+                <a href="{{ route('requests.index') }}" class="btn btn-ghost">Clear</a>
+            @endif
         </form>
 
-        <table>
-            <thead>
-                <tr><th>ID</th><th>Requester</th><th>Item</th><th>Qty</th><th>Status</th><th></th></tr>
-            </thead>
-            <tbody>
-                @forelse ($requests as $item)
-                    <tr>
-                        <td>{{ $item->id }}</td>
-                        <td>{{ $item->requester_name }}</td>
-                        <td>{{ $item->item_name }}</td>
-                        <td>{{ $item->quantity }}</td>
-                        <td><span class="badge {{ $item->status }}">{{ $item->status }}</span></td>
-                        <td><a href="{{ route('requests.show', $item) }}">View</a></td>
-                    </tr>
-                @empty
-                    <tr><td colspan="6">No requests found.</td></tr>
-                @endforelse
-            </tbody>
-        </table>
-
-        <div style="margin-top:1rem;">{{ $requests->links('partials.pagination') }}</div>
+        @if ($requests->isEmpty())
+            <div class="empty">
+                <div class="empty-icon"><x-icon name="inbox" /></div>
+                @if (! empty($filters['search']) || ! empty($filters['status']))
+                    <h3>No matching requests</h3>
+                    <p>Try a different search term or status.</p>
+                    <a href="{{ route('requests.index') }}" class="btn btn-secondary">Clear filters</a>
+                @else
+                    <h3>No requests yet</h3>
+                    <p>{{ $isAdmin ? 'Requests submitted by students will appear here.' : 'When you submit a request it will appear here.' }}</p>
+                    @can('create', App\Models\ServiceRequest::class)
+                        <a href="{{ route('requests.create') }}" class="btn btn-primary"><x-icon name="plus" /> Create your first request</a>
+                    @endcan
+                @endif
+            </div>
+        @else
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Item</th>
+                            @if ($isAdmin)<th class="hide-sm">Requester</th>@endif
+                            <th class="num">Qty</th>
+                            <th>Status</th>
+                            <th class="hide-sm hide-md">Submitted</th>
+                            <th class="actions"><span class="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($requests as $item)
+                            <tr>
+                                <td class="id">#{{ $item->id }}</td>
+                                <td class="cell-item">
+                                    <div class="item"><a href="{{ route('requests.show', $item) }}">{{ $item->item_name }}</a></div>
+                                    <div class="sub">{{ \Illuminate\Support\Str::limit($item->purpose, 60) }}</div>
+                                </td>
+                                @if ($isAdmin)
+                                    <td class="hide-sm">
+                                        <div class="person">
+                                            <x-avatar :name="$item->requester_name" />
+                                            <div>
+                                                <div>{{ $item->requester_name }}</div>
+                                                <div class="sub">{{ $item->requester_email }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                @endif
+                                <td class="num">{{ $item->quantity }}</td>
+                                <td><x-status-badge :status="$item->status" /></td>
+                                <td class="hide-sm hide-md sub cell-date">{{ $item->created_at?->format('M j, Y') }}</td>
+                                <td class="actions">
+                                    <a href="{{ route('requests.show', $item) }}" class="btn btn-secondary btn-sm">View</a>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            {{ $requests->links('partials.pagination') }}
+        @endif
     </div>
 @endsection

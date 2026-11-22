@@ -73,25 +73,46 @@ test fails, and in particular when **S3 (request creation)** fails because the
 `STAGE-LIB-08` request cannot be created or reopened, or when `/health` reports
 a version other than the approved one.
 
-## 5. Preparing staging (one time, done by the instructor/driver)
+## 5. Preparing staging (one time)
 
-1. Use the staging host directory (`STAGING_DIR`). It holds the files below,
-   all of which are git-ignored and readable only by the deploy account (`chmod 600`):
-   - `.env.staging` — created from `.env.staging.example` with
-     `APP_ENV=staging`, `APP_DEBUG=false`, the HTTPS `APP_URL`,
-     `SESSION_SECURE_COOKIE=true`, the database credentials, and **the existing
-     `APP_KEY`, which stays the same across releases**.
-   - `.env.db` — created from `.env.db.example`.
-2. Verify the URL (`curl -I $STAGING_URL`), the database (`db` service healthy),
-   and the deployment service (Docker Compose ≥ 2.24 for the deploy account).
-3. Use the provided web service (Nginx `web` container behind the TLS proxy).
+**Staging target used by this team:** the team PC running Docker Desktop and
+a GitHub **self-hosted runner** with the label `staging`. Staging is the Compose
+project `lrs-staging`, published only on `http://127.0.0.1:8081`. It is fully
+separate from the Lab 4 stack on port 8080, with its own database volume
+`lrs-staging_db_data` and its own `APP_KEY`.
+
+1. The staging folder `STAGING_DIR` (`C:\lrs-staging`) is outside the repository.
+   It holds these private, never-committed files:
+   - `.env.staging` — from `.env.staging.example`, with `APP_ENV=staging`,
+     `APP_DEBUG=false`, `APP_URL=http://127.0.0.1:8081`,
+     `SESSION_SECURE_COOKIE=false` (no HTTPS on a local PC), the database
+     credentials, the fictional seed passwords, and **one `APP_KEY` that stays
+     the same across every release and rollback**.
+   - `.env.db` — from `.env.db.example` (database `laravel_request_staging_db`).
+   - `.releases/` — the release records (`current`, `previous`, `known-good`,
+     `history`, `deploy.log`), written by `scripts/deploy.sh`.
+2. Verify the target: `curl http://127.0.0.1:8081/health` (URL and database),
+   and `docker compose -p lrs-staging ... ps` (the web, app and db services are healthy).
+3. The `web` container (Nginx) is the staging web service.
    `php artisan serve` is for local development only.
-4. In GitHub, open **Settings → Environments → staging**:
-   - Add **Required reviewers**: the designated approver.
-   - Add the variables and secrets listed at the top of `deploy-staging.yml`.
-5. The first time only, seed the fictional accounts:
+4. Register the runner: **Settings → Actions → Runners → New self-hosted
+   runner → Windows**. Follow the commands GitHub shows and add the label
+   `staging` when `config.cmd` asks. Keep `run.cmd` open while deploying.
+5. **Settings → Environments → New environment `staging`**:
+   - **Required reviewers:** the designated approver. A solo student records
+     this limitation in the report.
+   - **Variables:** `STAGING_URL=http://127.0.0.1:8081`, `STAGING_DIR=C:/lrs-staging`.
+   - **Secrets:** `SMOKE_STUDENT_EMAIL`, `SMOKE_STUDENT_PASSWORD`,
+     `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD`. Use the fictional seed
+     accounts; the passwords are in `C:\lrs-staging\.env.staging`.
+6. The first deploy to an empty database needs the initial schema, so the
+   deploy script stops unless **run_migrations** was approved. Seed the
+   fictional accounts once:
    `docker compose -p lrs-staging -f compose.yaml -f compose.staging.yaml exec app php artisan db:seed --force`
-   (`SEED_*_PASSWORD` must be set in `.env.staging`).
+
+**If your instructor provides a remote staging server instead**, run the same
+`scripts/deploy.sh` on that host, either through its own self-hosted runner or
+by manual promotion with recorded approval.
 
 ## 6. Release procedure
 
