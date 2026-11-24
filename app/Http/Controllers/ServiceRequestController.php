@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ServiceRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class ServiceRequestController extends Controller
 {
@@ -117,6 +118,14 @@ class ServiceRequestController extends Controller
             'status' => 'pending',
         ]);
 
+        // Lab 10: structured log, written only after the record was saved.
+        // No passwords, tokens, request descriptions or personal information.
+        Log::info('request.created', [
+            'request_id' => $request->attributes->get('request_id'),
+            'record_id' => $serviceRequest->id,
+            'outcome' => 'success',
+        ]);
+
         return redirect()
             ->route('requests.show', $serviceRequest)
             ->with('success', "Request #{$serviceRequest->id} submitted.");
@@ -135,6 +144,14 @@ class ServiceRequestController extends Controller
         ]);
 
         $serviceRequest->update(['status' => $validated['status']]);
+
+        // Lab 10: structured log, written only after the update succeeded.
+        Log::info('request.status_updated', [
+            'request_id' => $request->attributes->get('request_id'),
+            'record_id' => $serviceRequest->id,
+            'status' => $validated['status'],
+            'outcome' => 'success',
+        ]);
 
         return redirect()
             ->route('requests.show', $serviceRequest)
