@@ -13,6 +13,7 @@
 # Optional env:
 #   EXPECTED_REVISION   commit SHA from the release record
 #   LABEL               request label (default STAGE-LIB-08)
+#   VERIFY_LABEL        label the VERIFY_REQUEST_ID record must show (default STAGE-LIB-08)
 #   VERIFY_REQUEST_ID   after rollback: ID that must still exist
 #   RESULTS_DIR         where to write the log (default smoke-results)
 #
@@ -30,7 +31,7 @@ RESULTS_DIR="${RESULTS_DIR:-smoke-results}"
 mkdir -p "$RESULTS_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG="$RESULTS_DIR/smoke-$EXPECTED_VERSION-$STAMP.log"
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "$RESULTS_DIR/tmp.XXXXXX")"   # inside the project: works with or without MSYS_NO_PATHCONV
 trap 'rm -rf "$WORK"' EXIT
 FAILED=0
 REQUEST_ID=""
@@ -118,8 +119,8 @@ record S5 student_restriction "403; status stays approved" "student_patch=$code"
 # S6 - Earlier record still present (post-rollback) ------------------------
 if [ -n "${VERIFY_REQUEST_ID:-}" ]; then
     code="$(curl -s -b "$SJAR" -c "$SJAR" -o "$WORK/verify.html" -w '%{http_code}' "$BASE_URL/requests/$VERIFY_REQUEST_ID")"
-    if [ "$code" = "200" ] && grep -q "STAGE-LIB-08" "$WORK/verify.html"; then s=PASS; else s=FAIL; fi
-    record S6 record_persisted "request #$VERIFY_REQUEST_ID still shows STAGE-LIB-08" "http=$code" $s
+    if [ "$code" = "200" ] && grep -q "${VERIFY_LABEL:-STAGE-LIB-08}" "$WORK/verify.html"; then s=PASS; else s=FAIL; fi
+    record S6 record_persisted "request #$VERIFY_REQUEST_ID still shows ${VERIFY_LABEL:-STAGE-LIB-08}" "http=$code" $s
 fi
 
 echo "# overall: $([ $FAILED -eq 0 ] && echo PASS || echo 'FAIL - rollback criteria met')" | tee -a "$LOG"

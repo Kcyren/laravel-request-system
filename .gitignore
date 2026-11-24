@@ -47,3 +47,8 @@ BUILD_DATE
 config-audit/*.log
 lab9-permissions-demo/
 /database/database.sqlite
+
+# --- Lab 10/11: checker results and database backups (never commit) ---
+monitoring/results/
+*.sql
+lab11_backup*

@@ -4,22 +4,43 @@ use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\ServiceRequestController;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('requests.index'));
 
+// Health routes are stateless (no session/cookies), so they still answer
+// correctly when the database - which also stores sessions - is down.
+$stateless = [
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Session\Middleware\StartSession::class,
+    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+];
+
 // Release health check (Lab 8): status, version, revision, database reachability.
-// Stateless: no session/cookies, so it reports "fail" (503) instead of crashing
-// when the database or the sessions table is unavailable.
-Route::get('/health', HealthController::class)
-    ->withoutMiddleware([
-        \Illuminate\Cookie\Middleware\EncryptCookies::class,
-        \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
-        \Illuminate\Session\Middleware\StartSession::class,
-        \Illuminate\View\Middleware\ShareErrorsFromSession::class,
-        \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
-    ])
-    ->name('health');
+Route::get('/health', HealthController::class)->withoutMiddleware($stateless)->name('health');
+
+// Lab 10 - liveness: the application process is running (no database call).
+Route::get('/health/live', function () {
+    return response()->json(['status' => 'ok'], 200)->header('Cache-Control', 'no-store');
+})->withoutMiddleware($stateless)->name('health.live');
+
+// Lab 10 - readiness: the application can reach its database.
+// Only a generic status is returned - never exception details or credentials.
+Route::get('/health/ready', function () {
+    try {
+        DB::select('SELECT 1');
+
+        return response()->json(['status' => 'ready'], 200)->header('Cache-Control', 'no-store');
+    } catch (\Throwable $e) {
+        Log::warning('health.ready_failed', ['outcome' => 'database_unavailable']);
+
+        return response()->json(['status' => 'unavailable'], 503)->header('Cache-Control', 'no-store');
+    }
+})->withoutMiddleware($stateless)->name('health.ready');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
