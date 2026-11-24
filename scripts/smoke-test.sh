@@ -15,11 +15,13 @@
 #   LABEL               request label (default STAGE-LIB-08)
 #   VERIFY_LABEL        label the VERIFY_REQUEST_ID record must show (default STAGE-LIB-08)
 #   VERIFY_REQUEST_ID   after rollback: ID that must still exist
+#   OTHER_REQUEST_ID    another student's request; the student must get 403 (Lab 11)
 #   RESULTS_DIR         where to write the log (default smoke-results)
 #
 # Tests: S1 health/revision, S2 student login, S3 request creation
 # (+ reopen), S4 admin status update, S5 student restriction,
-# S6 (optional) previously created request still present.
+# S6 (optional) previously created request still present,
+# S7 (optional) another student's record is restricted.
 # Exit status is non-zero if any test fails -> rollback criterion.
 # =====================================================================
 set -u
@@ -121,6 +123,13 @@ if [ -n "${VERIFY_REQUEST_ID:-}" ]; then
     code="$(curl -s -b "$SJAR" -c "$SJAR" -o "$WORK/verify.html" -w '%{http_code}' "$BASE_URL/requests/$VERIFY_REQUEST_ID")"
     if [ "$code" = "200" ] && grep -q "${VERIFY_LABEL:-STAGE-LIB-08}" "$WORK/verify.html"; then s=PASS; else s=FAIL; fi
     record S6 record_persisted "request #$VERIFY_REQUEST_ID still shows ${VERIFY_LABEL:-STAGE-LIB-08}" "http=$code" $s
+fi
+
+# S7 - Another student's record is restricted (Lab 11) ---------------------
+if [ -n "${OTHER_REQUEST_ID:-}" ]; then
+    code="$(curl -s -b "$SJAR" -c "$SJAR" -o /dev/null -w '%{http_code}' "$BASE_URL/requests/$OTHER_REQUEST_ID")"
+    if [ "$code" = "403" ]; then s=PASS; else s=FAIL; fi
+    record S7 other_student_record "403 for another student's request #$OTHER_REQUEST_ID" "http=$code" $s
 fi
 
 echo "# overall: $([ $FAILED -eq 0 ] && echo PASS || echo 'FAIL - rollback criteria met')" | tee -a "$LOG"
